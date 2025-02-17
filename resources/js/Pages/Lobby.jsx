@@ -1,7 +1,15 @@
 import { Button } from '@/components/ui/button';
-import { Head, Link } from '@inertiajs/react';
+import { Head, Link, useForm } from '@inertiajs/react';
 
 export default function Lobby({ lobbies, owners, currentUserLobby }) {
+    const { post } = useForm();
+
+    console.log(lobbies);
+
+    const handleJoin = (ev, code) => {
+        ev.preventDefault();
+        post(route('lobby.join', code));
+    };
     return (
         <div className="mx-auto max-w-4xl p-4">
             <Head title="Lobbies" />
@@ -50,12 +58,16 @@ export default function Lobby({ lobbies, owners, currentUserLobby }) {
                                 </p>
                             </div>
                             <div>
-                                <Link
-                                    href={route('lobby.show', lobby.code)}
-                                    className="rounded bg-blue-500 px-4 py-2 text-white hover:bg-blue-600"
+                                <form
+                                    onSubmit={(e) => handleJoin(e, lobby.code)}
                                 >
-                                    Join
-                                </Link>
+                                    <Button
+                                        type="submit"
+                                        className="rounded bg-blue-500 px-4 py-2 text-white hover:bg-blue-600"
+                                    >
+                                        Join
+                                    </Button>
+                                </form>
                             </div>
                         </div>
                     ))}

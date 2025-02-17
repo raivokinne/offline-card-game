@@ -8,22 +8,18 @@ import {
     DialogTitle,
 } from '@/components/ui/dialog';
 import { Head, useForm } from '@inertiajs/react';
-import { useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import Layout from '../Layouts/Layout';
 
 export default function LobbyShow({ auth, initialLobby, canJoin, owners }) {
     const [isLeaveModalOpen, setIsLeaveModalOpen] = useState(false);
     const [lobby, setLobby] = useState(initialLobby);
-    const leaveOnRedirect = useRef(true);
-
-    const [players, setPlayers] = useState(() => {
-        const initialPlayers = [auth.user];
-        return initialPlayers;
-    });
-
+    const [players, setPlayers] = useState([]);
     const [readyPlayers, setReadyPlayers] = useState([]);
 
-    // const ownerIsPresent = players.some((p) => p.id === lobby.owner_id);
+    useEffect(() => {
+        setPlayers(initialLobby.players);
+    }, [initialLobby.players]);
 
     const areAllPlayersReady =
         players.length > 0 &&
@@ -34,12 +30,12 @@ export default function LobbyShow({ auth, initialLobby, canJoin, owners }) {
 
     const isCurrentUserReady = readyPlayers.some((p) => p.id === auth.user.id);
 
+    console.log(initialLobby);
+
     const isOwner = auth.user.id === lobby.owner_id;
 
     const { post: leavePost } = useForm();
-
     const { post: toggleReadyPost } = useForm();
-
     const { post: startGamePost } = useForm();
 
     const handleLeaveLobby = () => {
@@ -64,7 +60,7 @@ export default function LobbyShow({ auth, initialLobby, canJoin, owners }) {
 
     const handleStartGame = () => {
         if (!canStartGame) return;
-        startGamePost(route('lobby.start', lobby.code));
+        // startGamePost(route('lobby.start', lobby.code));
     };
 
     return (
@@ -192,7 +188,7 @@ export default function LobbyShow({ auth, initialLobby, canJoin, owners }) {
                                     Players
                                 </h3>
                                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                                    {players && players.length > 0 ? (
+                                    {players.length > 0 ? (
                                         players.map((player) => (
                                             <div
                                                 key={player.id}
@@ -258,8 +254,8 @@ export default function LobbyShow({ auth, initialLobby, canJoin, owners }) {
                                     <Button
                                         variant={
                                             isCurrentUserReady
-                                                ? 'warning'
-                                                : 'success'
+                                                ? 'secondary'
+                                                : 'primary'
                                         }
                                         onClick={handleReadyToggle}
                                         className="flex-1"

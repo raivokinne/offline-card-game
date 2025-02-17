@@ -17,8 +17,9 @@ Route::middleware('auth')->group(function () {
     Route::get('/lobbies', [LobbyController::class, 'index'])->name('lobby');
     Route::get('/lobby/create', [LobbyController::class, 'create'])->name('lobby.create');
     Route::post('/lobby/store', [LobbyController::class, 'store'])->name('lobby.store');
-    Route::get('/lobby/{code}', [LobbyController::class, 'show'])->name('lobby.show');
+    Route::get('/lobby/{code}/show', [LobbyController::class, 'show'])->name('lobby.show');
     Route::post('/lobby/{code}/leave', [LobbyController::class, 'leave'])->name('lobby.leave');
+    Route::post('/lobby/{code}/join', [LobbyController::class, 'join'])->name('lobby.join');
 });
 
 Route::middleware('auth')->group(function () {
