@@ -1,15 +1,16 @@
+'use client';
+
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { SPECIAL_RANKS } from '@/utils/constants';
 import { createDeck, createPlayer, dealCards } from '@/utils/deck';
-import {
-    botPlay,
-    checkForFourOfAKind,
-    getValidMoves,
-    shouldClearPile,
-} from '@/utils/game';
-import { AlertCircle, Info, RefreshCw } from 'lucide-react';
+import { botPlay, getValidMoves } from '@/utils/game';
+import { AlertCircle, RefreshCw } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
+
+const SPECIAL_RANKS = {
+    RESET: ['6'],
+    CLEAR_PILE: ['10'],
+};
 
 export default function Offline() {
     const [gameState, setGameState] = useState({
@@ -52,7 +53,7 @@ export default function Offline() {
             currentPlayer: 'player',
             gameOver: false,
             message:
-                'Your turn. Click a card then press Enter to play or Space to play all matching cards.',
+                "Your turn. Click a card to play or pick up if you can't play.",
             selectedCard: null,
             validMoves: null,
         });
@@ -75,14 +76,18 @@ export default function Offline() {
                 }
 
                 const newPile = [...pile, cardToPlay];
+                const { clearPile, extraTurn, message } = handleSpecialCards(
+                    cardToPlay,
+                    newPile,
+                );
 
-                if (shouldClearPile(cardToPlay, newPile)) {
+                if (clearPile) {
                     newState.pile = [];
-                    newState.message = SPECIAL_RANKS.CLEAR_PILE.includes(
-                        cardToPlay.rank,
-                    )
-                        ? `You played a ${cardToPlay.rank}. Pile cleared. Play again.`
-                        : 'Four identical cards. Pile cleared. Play again.';
+                    newState.message = message;
+                    if (!extraTurn) {
+                        newState.currentPlayer = 'bot';
+                        setTimeout(() => botTurn(), 1000);
+                    }
                 } else {
                     newState.pile = newPile;
                     newState.currentPlayer = 'bot';
@@ -121,170 +126,79 @@ export default function Offline() {
 
             if (cardPlayed) {
                 const newPile = [...newState.pile, cardPlayed];
+                const { clearPile, extraTurn, message } = handleSpecialCards(
+                    cardPlayed,
+                    newPile,
+                );
 
-                if (shouldClearPile(cardPlayed, newPile)) {
+                if (clearPile) {
                     newState.pile = [];
-                    newState.message = SPECIAL_RANKS.CLEAR_PILE.includes(
-                        cardPlayed.rank,
-                    )
-                        ? `Bot played a ${cardPlayed.rank}. Pile cleared. Bot plays again.`
-                        : 'Bot played four identical cards. Pile cleared. Bot plays again.';
-                    setTimeout(() => botTurn(), 1000);
+                    newState.message = message;
+                    if (extraTurn) {
+                        setTimeout(() => botTurn(), 1000);
+                        return newState;
+                    }
                 } else {
                     newState.pile = newPile;
-                    newState.currentPlayer = 'player';
-                    newState.message = 'Your turn.';
-                }
-
-                if (newState.deck.length > 0 && newState.bot.hand.length < 3) {
-                    newState.bot.hand.push(newState.deck.pop());
-                }
-
-                if (checkWinCondition(newState.bot)) {
-                    newState.gameOver = true;
-                    newState.message = 'Game over. Bot wins!';
                 }
             } else {
-                newState.currentPlayer = 'player';
-                newState.message = 'Bot has no valid moves. Your turn.';
+                // Bot picks up the pile
+                newState.bot.hand.push(...newState.pile);
+                newState.pile = [];
+                newState.message = 'Bot picked up the pile.';
+            }
+
+            newState.currentPlayer = 'player';
+            newState.message = 'Your turn.';
+
+            if (newState.deck.length > 0 && newState.bot.hand.length < 3) {
+                newState.bot.hand.push(newState.deck.pop());
+            }
+
+            if (checkWinCondition(newState.bot)) {
+                newState.gameOver = true;
+                newState.message = 'Game over. Bot wins!';
             }
 
             return newState;
         });
     }, [gameState.bot]);
 
-    const handleMultipleCardPlay = useCallback(
-        (matchingIndices) => {
-            if (!gameState.selectedCard || !gameState.player) return;
+    const handleCardSelection = (card, index, from) => {
+        if (gameState.currentPlayer !== 'player') return;
 
-            setGameState((prev) => {
-                const newState = { ...prev };
-                const { player, pile, deck } = newState;
-                const { rank } = gameState.selectedCard.card;
+        const topCard = gameState.pile[gameState.pile.length - 1];
+        if (canPlayCard(card, topCard)) {
+            handleCardPlay(card, index, from);
+        } else {
+            setGameState((prev) => ({
+                ...prev,
+                message: "Invalid move. Pick up the pile if you can't play.",
+            }));
+        }
+    };
 
-                const indices = [...matchingIndices].sort((a, b) => b - a);
-                const cardsToPlay = indices.map((idx) => player.hand[idx]);
+    const canPlayCard = (card, topCard) => {
+        if (!topCard) return true;
+        if (
+            SPECIAL_RANKS.RESET.includes(card.rank) ||
+            SPECIAL_RANKS.CLEAR_PILE.includes(card.rank)
+        )
+            return true;
+        return Number.parseInt(card.rank) >= Number.parseInt(topCard.rank);
+    };
 
-                indices.forEach((idx) => {
-                    player.hand.splice(idx, 1);
-                });
-
-                const newPile = [...pile, ...cardsToPlay];
-
-                if (
-                    SPECIAL_RANKS.CLEAR_PILE.includes(rank) ||
-                    checkForFourOfAKind(newPile)
-                ) {
-                    newState.pile = [];
-                    newState.message = SPECIAL_RANKS.CLEAR_PILE.includes(rank)
-                        ? `You played a ${rank}. Pile cleared. Play again.`
-                        : 'Four identical cards. Pile cleared. Play again.';
-                } else {
-                    newState.pile = newPile;
-                    newState.currentPlayer = 'bot';
-                    newState.message = "Bot's turn.";
-                    setTimeout(() => botTurn(), 1000);
-                }
-
-                if (deck.length > 0 && player.hand.length < 3) {
-                    player.hand.push(deck.pop());
-                }
-
-                if (checkWinCondition(player)) {
-                    newState.gameOver = true;
-                    newState.message = 'Congratulations! You win!';
-                }
-
-                return {
-                    ...newState,
-                    selectedCard: null,
-                };
-            });
-        },
-        [gameState.selectedCard, botTurn],
-    );
-
-    const playCard = useCallback(
-        (cardIndex, from = 'hand') => {
-            if (
-                gameState.currentPlayer !== 'player' ||
-                !gameState.player ||
-                !gameState.validMoves
-            )
-                return;
-
-            if (from === 'hand' && gameState.validMoves.hand.length > 0) {
-                const move = gameState.validMoves.hand[cardIndex];
-                if (move?.valid) {
-                    handleCardPlay(move.card, cardIndex, from);
-                } else {
-                    setGameState((prev) => ({
-                        ...prev,
-                        message: 'Invalid move. Select another card.',
-                    }));
-                }
-            } else if (
-                from === 'faceUp' &&
-                gameState.validMoves.faceUp.length > 0
-            ) {
-                const move = gameState.validMoves.faceUp[cardIndex];
-                if (move?.valid) {
-                    handleCardPlay(move.card, cardIndex, from);
-                } else {
-                    setGameState((prev) => ({
-                        ...prev,
-                        message: 'Invalid move. Select another card.',
-                    }));
-                }
-            } else if (from === 'faceDown' && gameState.validMoves.faceDown) {
-                const cardToPlay = gameState.player.faceDown[cardIndex];
-                handleCardPlay(cardToPlay, cardIndex, from);
-            } else {
-                setGameState((prev) => ({
-                    ...prev,
-                    message: 'You must play all cards from your hand first!',
-                }));
-            }
-        },
-        [gameState, handleCardPlay],
-    );
-
-    useEffect(() => {
-        const handleKeyDown = (e) => {
-            if (gameState.currentPlayer !== 'player' || !gameState.selectedCard)
-                return;
-
-            if (e.code === 'Enter') {
-                playCard(
-                    gameState.selectedCard.index,
-                    gameState.selectedCard.from,
-                );
-            } else if (e.code === 'Space') {
-                if (gameState.selectedCard.from === 'hand') {
-                    const rank = gameState.selectedCard.card.rank;
-                    const matchingIndices = gameState.player.hand
-                        .map((card, idx) => (card.rank === rank ? idx : null))
-                        .filter((x) => x !== null);
-                    if (matchingIndices.length > 1) {
-                        handleMultipleCardPlay(matchingIndices);
-                    } else {
-                        playCard(
-                            gameState.selectedCard.index,
-                            gameState.selectedCard.from,
-                        );
-                    }
-                } else {
-                    playCard(
-                        gameState.selectedCard.index,
-                        gameState.selectedCard.from,
-                    );
-                }
-            }
-        };
-
-        window.addEventListener('keydown', handleKeyDown);
-        return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [gameState, handleMultipleCardPlay, playCard]);
+    const handlePickUp = () => {
+        setGameState((prev) => {
+            const newState = { ...prev };
+            newState.player.hand.push(...newState.pile);
+            newState.pile = [];
+            newState.message = "You picked up the pile. Bot's turn.";
+            newState.currentPlayer = 'bot';
+            setTimeout(() => botTurn(), 1000);
+            return newState;
+        });
+    };
 
     const checkWinCondition = (playerState) => {
         return (
@@ -294,61 +208,37 @@ export default function Offline() {
         );
     };
 
-    const handleCardSelection = (card, index, from) => {
-        if (gameState.currentPlayer !== 'player') return;
-
-        if (
-            gameState.selectedCard &&
-            gameState.selectedCard.index === index &&
-            gameState.selectedCard.from === from
-        ) {
-            playCard(index, from);
-        } else {
-            setGameState((prev) => ({
-                ...prev,
-                selectedCard: { card, index, from },
-            }));
-        }
-    };
-
     const renderCard = (card, index, from) => {
         const isSelected =
             gameState.selectedCard &&
             gameState.selectedCard.index === index &&
             gameState.selectedCard.from === from;
-        const isValid =
-            gameState.validMoves &&
-            gameState.validMoves[from] &&
-            gameState.validMoves[from][index]?.valid;
 
         return (
             <div
                 key={index}
-                className={`relative m-1 flex h-24 w-16 cursor-pointer items-center justify-center rounded-lg border-2 ${isSelected ? 'border-blue-500' : 'border-gray-300'} ${isValid ? 'hover:border-green-500' : ''} ${gameState.currentPlayer === 'player' ? 'hover:border-blue-300' : ''} bg-white shadow-sm transition-all duration-200 hover:shadow-md ${SPECIAL_RANKS.CLEAR_PILE.includes(card?.rank) ? 'bg-blue-50' : ''}`}
+                className={`relative flex h-32 w-24 cursor-pointer items-center justify-center rounded-md ${
+                    isSelected ? 'ring-2 ring-white' : ''
+                } ${
+                    gameState.currentPlayer === 'player'
+                        ? 'hover:ring-2 hover:ring-gray-300'
+                        : ''
+                } bg-black text-white shadow-md transition-all duration-200 hover:shadow-lg`}
                 onClick={() => {
                     if (gameState.currentPlayer === 'player') {
                         handleCardSelection(card, index, from);
                     }
                 }}
+                style={{
+                    boxShadow:
+                        '0 4px 6px rgba(255, 255, 255, 0.1), 0 1px 3px rgba(255, 255, 255, 0.08)',
+                }}
             >
                 {card && (
-                    <>
-                        <span
-                            className={`text-xl font-semibold ${
-                                card.suit === '♥' || card.suit === '♦'
-                                    ? 'text-red-500'
-                                    : 'text-black'
-                            }`}
-                        >
-                            {card.rank}
-                            <span className="text-2xl">{card.suit}</span>
-                        </span>
-                        {SPECIAL_RANKS.CLEAR_PILE.includes(card.rank) && (
-                            <div className="absolute -right-2 -top-2">
-                                <Info className="h-4 w-4 text-blue-500" />
-                            </div>
-                        )}
-                    </>
+                    <span className="text-3xl font-bold">
+                        {card.rank}
+                        <span className="text-4xl">{card.suit}</span>
+                    </span>
                 )}
             </div>
         );
@@ -357,16 +247,18 @@ export default function Offline() {
     if (!gameState.player || !gameState.bot) return null;
 
     return (
-        <div className="min-h-screen bg-gray-50 p-8">
-            <Card className="mx-auto max-w-4xl">
+        <div className="min-h-screen bg-gray-900 p-8">
+            <Card className="mx-auto max-w-4xl bg-gray-800 text-white">
                 <CardHeader>
                     <CardTitle className="flex items-center justify-between">
-                        <span>Shithead Card Game</span>
+                        <span className="text-2xl font-bold">
+                            Shithead Card Game
+                        </span>
                         <Button
                             variant="outline"
                             size="sm"
                             onClick={startNewGame}
-                            className="flex items-center gap-2"
+                            className="flex items-center gap-2 bg-gray-700 text-white hover:bg-gray-600"
                         >
                             <RefreshCw className="h-4 w-4" />
                             New Game
@@ -376,25 +268,25 @@ export default function Offline() {
                 <CardContent>
                     {gameState.gameOver ? (
                         <div className="text-center">
-                            <p className="mb-4 text-xl font-semibold">
+                            <p className="mb-4 text-2xl font-bold">
                                 {gameState.message}
                             </p>
                         </div>
                     ) : (
                         <div className="flex w-full flex-col items-center justify-center space-y-8">
-                            <div className="flex items-center gap-2 rounded-lg bg-blue-50 p-4">
-                                <AlertCircle className="h-5 w-5 text-blue-500" />
-                                <p className="font-medium text-blue-700">
+                            <div className="flex items-center gap-2 rounded-lg bg-gray-700 p-4">
+                                <AlertCircle className="h-5 w-5 text-gray-300" />
+                                <p className="font-medium text-gray-300">
                                     {gameState.message}
                                 </p>
                             </div>
 
                             <div className="space-y-4">
-                                <h3 className="font-semibold text-gray-700">
+                                <h3 className="font-bold text-gray-300">
                                     Bot's Cards
                                 </h3>
                                 <div className="space-y-2">
-                                    <div className="flex flex-wrap">
+                                    <div className="flex flex-wrap justify-center">
                                         {gameState.bot.faceUp.map(
                                             (card, index) =>
                                                 renderCard(
@@ -404,13 +296,13 @@ export default function Offline() {
                                                 ),
                                         )}
                                     </div>
-                                    <div className="flex flex-wrap">
+                                    <div className="flex flex-wrap justify-center">
                                         {Array(gameState.bot.hand.length)
                                             .fill(null)
                                             .map((_, index) => (
                                                 <div
                                                     key={index}
-                                                    className="m-1 h-24 w-16 rounded-lg bg-gray-200"
+                                                    className="m-1 h-24 w-16 rounded-md bg-gray-600"
                                                 />
                                             ))}
                                     </div>
@@ -418,10 +310,10 @@ export default function Offline() {
                             </div>
 
                             <div className="space-y-4">
-                                <h3 className="font-semibold text-gray-700">
+                                <h3 className="font-bold text-gray-300">
                                     Current Pile
                                 </h3>
-                                <div className="flex flex-wrap">
+                                <div className="flex flex-wrap justify-center">
                                     {gameState.pile
                                         .slice(-4)
                                         .map((card, index) =>
@@ -431,17 +323,11 @@ export default function Offline() {
                             </div>
 
                             <div className="space-y-4">
-                                <h3 className="font-semibold text-gray-700">
+                                <h3 className="font-bold text-gray-300">
                                     Your Cards
                                 </h3>
-                                <div className="space-y-2">
-                                    <div className="flex flex-wrap">
-                                        {gameState.player.hand.map(
-                                            (card, index) =>
-                                                renderCard(card, index, 'hand'),
-                                        )}
-                                    </div>
-                                    <div className="flex flex-wrap">
+                                <div className="space-y-4">
+                                    <div className="flex flex-wrap justify-center">
                                         {gameState.player.faceUp.map(
                                             (card, index) =>
                                                 renderCard(
@@ -451,12 +337,41 @@ export default function Offline() {
                                                 ),
                                         )}
                                     </div>
-                                    <div className="flex flex-wrap">
+                                    <div className="relative h-40 w-full">
+                                        <div
+                                            className="absolute bottom-30 right-24 flex justify-center"
+                                            style={{
+                                                transform: 'translateX(-50%)',
+                                            }}
+                                        >
+                                            {gameState.player.hand.map(
+                                                (card, index) => (
+                                                    <div
+                                                        key={index}
+                                                        style={{
+                                                            transform: `translateX(250%) rotate(${(index - (gameState.player.hand.length - 1) / 2) * 5}deg)`,
+                                                            transformOrigin:
+                                                                'bottom center',
+                                                            zIndex: index,
+                                                        }}
+                                                        className=""
+                                                    >
+                                                        {renderCard(
+                                                            card,
+                                                            index,
+                                                            'hand',
+                                                        )}
+                                                    </div>
+                                                ),
+                                            )}
+                                        </div>
+                                    </div>
+                                    <div className="mt-4 flex flex-wrap justify-center">
                                         {gameState.player.faceDown.map(
                                             (_, index) => (
                                                 <div
                                                     key={index}
-                                                    className="m-1 h-24 w-16 cursor-pointer rounded-lg bg-gray-300 transition-all duration-200 hover:bg-gray-400"
+                                                    className="m-1 h-24 w-16 cursor-pointer rounded-md bg-gray-600 transition-all duration-200 hover:bg-gray-500"
                                                     onClick={() => {
                                                         if (
                                                             gameState.currentPlayer ===
@@ -479,45 +394,48 @@ export default function Offline() {
                                 </div>
                             </div>
 
-                            <div className="mt-4 space-y-2">
-                                <h3 className="font-semibold text-gray-700">
-                                    Game Controls
-                                </h3>
-                                <div className="rounded-lg bg-gray-100 p-4">
-                                    <p className="text-sm text-gray-600">
-                                        • Press{' '}
-                                        <span className="font-mono">Enter</span>{' '}
-                                        to play the selected card
-                                    </p>
-                                    <p className="text-sm text-gray-600">
-                                        • Press{' '}
-                                        <span className="font-mono">Space</span>{' '}
-                                        to play all matching cards from hand
-                                    </p>
-                                </div>
-                            </div>
+                            <Button
+                                onClick={handlePickUp}
+                                disabled={
+                                    gameState.currentPlayer !== 'player' ||
+                                    gameState.pile.length === 0
+                                }
+                                className="mt-4 bg-gray-700 text-white hover:bg-gray-600"
+                            >
+                                Pick Up Pile
+                            </Button>
 
                             <div className="mt-4 space-y-2">
-                                <h3 className="font-semibold text-gray-700">
-                                    Special Cards
+                                <h3 className="font-bold text-gray-300">
+                                    Game Rules
                                 </h3>
-                                <div className="rounded-lg bg-gray-100 p-4">
-                                    <p className="text-sm text-gray-600">
-                                        • 10 can be played on any card clears
-                                        the pile
+                                <div className="rounded-lg bg-gray-700 p-4 text-sm text-gray-300">
+                                    <p>• Max cards: 52 (No jokers)</p>
+                                    <p>
+                                        • Card suit doesn't matter (e.g., ♠8
+                                        can be placed on ♥8)
                                     </p>
-                                    <p className="text-sm text-gray-600">
-                                        • 6 can be played on any card any card
-                                        can be placed on
+                                    <p>
+                                        • Play a card of equal or higher value,
+                                        or pick up the pile
                                     </p>
-                                    <p className="text-sm text-gray-600">
-                                        • Playing four cards of the same rank
-                                        clears the pile
+                                    <p>
+                                        • 6 resets the pile (any card can be
+                                        placed on top)
                                     </p>
-                                    <p className="text-sm text-gray-600">
-                                        • Jack can be played on any card when
-                                        it's your last card
+                                    <p>
+                                        • 10 clears the pile and grants an extra
+                                        turn
                                     </p>
+                                    <p>
+                                        • Four identical cards in a row clears
+                                        the pile and grants an extra turn
+                                    </p>
+                                    <p>
+                                        • Use face-up cards when hand is empty,
+                                        face-down cards when no other options
+                                    </p>
+                                    <p>• Win by playing all your cards</p>
                                 </div>
                             </div>
                         </div>
@@ -527,3 +445,34 @@ export default function Offline() {
         </div>
     );
 }
+
+const handleSpecialCards = (card, newPile) => {
+    if (SPECIAL_RANKS.RESET.includes(card.rank)) {
+        return {
+            clearPile: true,
+            extraTurn: false,
+            message: `Played a ${card.rank}. Pile reset. Play any card.`,
+        };
+    }
+    if (SPECIAL_RANKS.CLEAR_PILE.includes(card.rank)) {
+        return {
+            clearPile: true,
+            extraTurn: true,
+            message: `Played a ${card.rank}. Pile cleared. Play again.`,
+        };
+    }
+    if (checkForFourOfAKind(newPile)) {
+        return {
+            clearPile: true,
+            extraTurn: true,
+            message: 'Four identical cards. Pile cleared. Play again.',
+        };
+    }
+    return { clearPile: false, extraTurn: false, message: '' };
+};
+
+const checkForFourOfAKind = (pile) => {
+    if (pile.length < 4) return false;
+    const lastFour = pile.slice(-4);
+    return lastFour.every((card) => card.rank === lastFour[0].rank);
+};
